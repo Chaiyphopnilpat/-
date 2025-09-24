@@ -1,0 +1,39 @@
+import csv
+import random
+import string
+
+# กำหนดจำนวนโค้ดต่อ Tier
+tiers = {
+    "Starter": 100,
+    "Pro Team": 75,
+    "Enterprise": 50
+}
+
+# ตั้งชื่อ prefix สำหรับแต่ละ Tier
+prefix_map = {
+    "Starter": "START",
+    "Pro Team": "PROTM",
+    "Enterprise": "ENTRP"
+}
+
+# ฟังก์ชันสร้างโค้ดสุ่ม
+def generate_code(prefix, length=6):
+    suffix = ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+    return f"{prefix}-{suffix}"
+
+# เตรียมรายการโค้ด
+codes = []
+for tier, count in tiers.items():
+    prefix = prefix_map[tier]
+    for _ in range(count):
+        code = generate_code(prefix)
+        codes.append({"Code": code, "Tier": tier})
+
+# เขียนลงไฟล์ CSV
+with open("ethical_ai_codes.csv", "w", newline="", encoding="utf-8") as csvfile:
+    writer = csv.DictWriter(csvfile, fieldnames=["Code", "Tier"])
+    writer.writeheader()
+    writer.writerows(codes)
+
+print("✅ ไฟล์ ethical_ai_codes.csv ถูกสร้างเรียบร้อยแล้ว!")
+

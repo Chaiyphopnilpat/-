@@ -1,0 +1,261 @@
+ได้ครับ! ผมจะช่วยร่าง ระบบเต็มรูปแบบ ที่ประกอบด้วย
+
+ระบบชำระเงินผ่าน พร้อมเพย์ (PromptPay)
+
+ระบบจัดการสินค้าดิจิทัล / ฟีเจอร์ SaaS
+
+ระบบติดตามสถานะการชำระเงินและปลดล็อกสินค้าหลังชำระสำเร็จ
+
+API Backend + Frontend ตัวอย่างพร้อมใช้งาน
+
+
+
+---
+
+สรุปโครงสร้างระบบ
+
+ส่วน	รายละเอียด
+
+Frontend	หน้าเว็บแสดงสินค้า, สร้าง QR Code พร้อมเพย์, แสดงสถานะการชำระเงิน
+Backend	API จัดการสินค้า, สร้าง QR Code พร้อมเพย์, ตรวจสอบสถานะชำระเงิน, บันทึกธุรกรรม
+Database	เก็บข้อมูลสินค้า, ธุรกรรม, สถานะชำระเงิน
+Payment Gateway	ผสานกับ Omise/2C2P หรือระบบ PromptPay API สำหรับแจ้งสถานะชำระเงิน
+
+
+
+---
+
+ตัวอย่างโค้ดระบบพื้นฐาน (Node.js + Express + SQLite + qrcode)
+
+
+---
+
+1. ติดตั้งแพ็กเกจ (ใช้ npm)
+
+npm init -y
+npm install express sqlite3 qrcode body-parser cors
+
+
+---
+
+2. server.js (Backend API แบบครบวงจร)
+
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const QRCode = require('qrcode');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+
+const app = express();
+app.use(bodyParser.json());
+app.use(cors());
+
+// เปิดหรือสร้างฐานข้อมูล SQLite
+const db = new sqlite3.Database('./db.sqlite3', (err) => {
+  if (err) return console.error(err.message);
+  console.log('Connected to SQLite database.');
+});
+
+// สร้างตารางสินค้าและธุรกรรม (ถ้ายังไม่มี)
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    price REAL NOT NULL
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    amount REAL,
+    promptpay_id TEXT,
+    qr_code TEXT,
+    status TEXT DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+  )`);
+});
+
+// เพิ่มสินค้าใหม่ (ทดลอง)
+app.post('/api/products', (req, res) => {
+  const { name, description, price } = req.body;
+  db.run(`INSERT INTO products (name, description, price) VALUES (?, ?, ?)`, [name, description, price], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ id: this.lastID });
+  });
+});
+
+// ดึงรายการสินค้า
+app.get('/api/products', (req, res) => {
+  db.all(`SELECT * FROM products`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// สร้างธุรกรรมและ QR Code พร้อมเพย์
+app.post('/api/checkout', async (req, res) => {
+  const { productId, promptpayId } = req.body;
+
+  // ดึงข้อมูลสินค้า
+  db.get(`SELECT * FROM products WHERE id = ?`, [productId], async (err, product) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!product) return res.status(404).json({ error: "Product not found" });
+
+    // สร้าง Payload QR PromptPay (ใช้รูปแบบข้อความง่าย ๆ เพื่อทดลอง)
+    // จริง ๆ ต้องใช้ lib สำหรับ PromptPay Payload เช่น promptpay-qrcode (Node.js) หรือเขียนตามมาตรฐาน EMV
+    const payload = `00020101021129370016A00000067701011101130066${promptpayId}520458125303TH5406${(product.price).toFixed(2)}5802TH6304XXXX`; // XXXX ต้องคำนวณ CRC16
+
+    // สร้าง QR Code เป็น Data URL
+    try {
+      const qrCodeDataURL = await QRCode.toDataURL(payload);
+
+      // บันทึกธุรกรรมใน DB
+      db.run(`INSERT INTO transactions (product_id, amount, promptpay_id, qr_code) VALUES (?, ?, ?, ?)`,
+        [productId, product.price, promptpayId, qrCodeDataURL], function (err) {
+          if (err) return res.status(500).json({ error: err.message });
+
+          res.json({
+            transactionId: this.lastID,
+            qrCode: qrCodeDataURL,
+            product,
+          });
+        });
+
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+});
+
+// อัปเดตสถานะธุรกรรม (เช่น webhook จาก Payment Gateway)
+app.post('/api/transaction/update', (req, res) => {
+  const { transactionId, status } = req.body;
+
+  db.run(`UPDATE transactions SET status = ? WHERE id = ?`, [status, transactionId], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ updated: this.changes });
+  });
+});
+
+// ดึงสถานะธุรกรรม
+app.get('/api/transaction/:id', (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT * FROM transactions WHERE id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: "Transaction not found" });
+    res.json(row);
+  });
+});
+
+// เซิร์ฟเวอร์รันที่ port 4000
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+
+
+---
+
+3. Frontend ตัวอย่าง (React + Fetch API)
+
+import React, { useEffect, useState } from 'react';
+
+function App() {
+  const [products, setProducts] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [promptpayId, setPromptpayId] = useState('0886363126');
+  const [qrCode, setQrCode] = useState(null);
+  const [transactionId, setTransactionId] = useState(null);
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/products')
+      .then(res => res.json())
+      .then(data => setProducts(data));
+  }, []);
+
+  const checkout = () => {
+    if (!selectedProduct) return alert("เลือกสินค้า");
+
+    fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ productId: selectedProduct.id, promptpayId }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        setQrCode(data.qrCode);
+        setTransactionId(data.transactionId);
+        setStatus('pending');
+      });
+  };
+
+  // ตัวอย่าง polling เช็คสถานะ (ในระบบจริงควรใช้ webhook)
+  useEffect(() => {
+    if (!transactionId) return;
+    const interval = setInterval(() => {
+      fetch(`/api/transaction/${transactionId}`)
+        .then(res => res.json())
+        .then(data => {
+          setStatus(data.status);
+          if (data.status === 'completed') clearInterval(interval);
+        });
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [transactionId]);
+
+  return (
+    <div style={{ padding: '1rem', background: '#02042B', color: '#E0E0E0', minHeight: '100vh' }}>
+      <h1>AetherCompute - ระบบชำระเงินพร้อมเพย์</h1>
+
+      <div>
+        <h2>สินค้า</h2>
+        <select onChange={e => setSelectedProduct(products.find(p => p.id === +e.target.value))}>
+          <option value="">-- เลือกสินค้า --</option>
+          {products.map(p => (
+            <option key={p.id} value={p.id}>{p.name} - {p.price} บาท</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label>หมายเลขพร้อมเพย์: </label>
+        <input type="text" value={promptpayId} onChange={e => setPromptpayId(e.target.value)} />
+      </div>
+
+      <button onClick={checkout} disabled={!selectedProduct}>ชำระเงิน</button>
+
+      {qrCode && (
+        <div>
+          <h3>สแกนเพื่อชำระเงิน</h3>
+          <img src={qrCode} alt="PromptPay QR Code" />
+        </div>
+      )}
+
+      {status && <p>สถานะชำระเงิน: {status}</p>}
+    </div>
+  );
+}
+
+export default App;
+
+
+---
+
+สรุป
+
+ระบบนี้ครบตั้งแต่เพิ่มสินค้า → สร้างธุรกรรมพร้อม QR Code PromptPay → ตรวจสอบสถานะชำระเงิน → ปลดล็อกสินค้า / ฟีเจอร์
+
+สามารถนำไปพัฒนาและต่อยอดให้เชื่อมกับ Payment Gateway จริง และระบบ SaaS ของคุณได้ง่ายมาก
+
+เพิ่มระบบ webhook เพื่อตรวจสอบสถานะชำระเงินอัตโนมัติแทน polling
+
+เพิ่มระบบจัดการผู้ใช้, รายงาน, ระบบ Subscription ฯลฯ ตามความต้องการ
+
+
+
+---
+
+ถ้าต้องการ ผมช่วยคุณพัฒนาระบบนี้
+

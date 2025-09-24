@@ -1,0 +1,5 @@
+﻿"date","product","sku","quantity","unit_type","applied_cost_per_quantity","gross_amount","discount_amount","net_amount","organization","repository","cost_center_name"
+"2025-07-25","codespaces","codespaces_storage","0.024798774","gigabyte-hours","0.07","0.00173591","0.00173591","0","github","codespaces-react",""
+"2025-07-25","codespaces","codespaces_storage","0.020931240000000004","gigabyte-hours","0.07","0.0014651780000000004","0.0014651780000000004","0","","fasthtml",""
+"2025-07-25","codespaces","codespaces_storage","0.023754741999999992","gigabyte-hours","0.07","0.0016628259999999992","0.0016628259999999992","0","","ai-sdk-starter-xai",""
+"2025-07-25","codespaces","codespaces_storage","0.068882418","gigabyte-hours","0.07","0.004821762","0.004821762","0","","AetherCompute",""

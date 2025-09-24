@@ -1,0 +1,89 @@
+using System;
+using System.Threading;
+using System.Collections.Generic;
+
+namespace EnergyOptimizer
+{
+    public enum PowerMode
+    {
+        HighPerformance,
+        Balanced,
+        PowerSaving
+    }
+
+    public class EnergyAgent
+    {
+        private readonly string _agentName;
+        private readonly Random _rand = new();
+        private double _totalEnergyUsed = 0;
+        private readonly List<string> _logs = new();
+
+        public EnergyAgent(string name)
+        {
+            _agentName = name;
+        }
+
+        public void Run(int cycles)
+        {
+            Console.WriteLine($"⚡ {_agentName} Starting Energy Optimization...\n");
+
+            for (int i = 1; i <= cycles; i++)
+            {
+                double temperature = GetSimulatedTemperature();
+                double workload = GetSimulatedWorkload();
+                PowerMode mode = DecidePowerMode(temperature, workload);
+
+                double energyUsed = ExecuteCycle(mode, workload);
+                _totalEnergyUsed += energyUsed;
+
+                string log = $"Cycle {i}: Temp = {temperature}°C, Load = {workload:F2}, Mode = {mode}, Energy = {energyUsed:F2}W";
+                _logs.Add(log);
+                Console.WriteLine(log);
+
+                Thread.Sleep(300);
+            }
+
+            PrintSummary();
+        }
+
+        private double GetSimulatedTemperature() => Math.Round(45 + _rand.NextDouble() * 35, 2); // 45°C - 80°C
+        private double GetSimulatedWorkload() => Math.Round(_rand.NextDouble() * 100, 2); // 0 - 100%
+
+        private PowerMode DecidePowerMode(double temp, double workload)
+        {
+            if (temp > 75 || workload < 20) return PowerMode.PowerSaving;
+            if (temp > 65 || workload < 50) return PowerMode.Balanced;
+            return PowerMode.HighPerformance;
+        }
+
+        private double ExecuteCycle(PowerMode mode, double workload)
+        {
+            double baseEnergy = workload / 100.0;
+            return mode switch
+            {
+                PowerMode.HighPerformance => baseEnergy * 1.5,
+                PowerMode.Balanced => baseEnergy,
+                PowerMode.PowerSaving => baseEnergy * 0.5,
+                _ => baseEnergy
+            };
+        }
+
+        private void PrintSummary()
+        {
+            Console.WriteLine("\n📊 Optimization Summary:");
+            foreach (var log in _logs)
+                Console.WriteLine(" - " + log);
+
+            Console.WriteLine($"\n⚡ Total Energy Consumed: {_totalEnergyUsed:F2} watts\n");
+        }
+    }
+
+    class Program
+    {
+        static void Main()
+        {
+            var agent = new EnergyAgent("Net8-EnergyAgent");
+            agent.Run(12); // run 12 cycles
+        }
+    }
+}
