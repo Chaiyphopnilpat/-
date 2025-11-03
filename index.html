@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aura Sensor (v0.1)</title>
+    <style>
+        body {
+            background-color: #000;
+            color: #00ffaa;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        #gauge-container {
+            width: 300px;
+            height: 150px;
+            border: 2px solid #00ffaa;
+            border-bottom: none;
+            border-top-left-radius: 150px;
+            border-top-right-radius: 150px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 0 20px #00ffaa;
+        }
+        #needle {
+            width: 2px;
+            height: 140px;
+            background-color: #ff0055;
+            position: absolute;
+            bottom: 0;
+            left: 149px;
+            transform-origin: bottom center;
+            transition: transform 0.5s ease-in-out;
+        }
+        #status {
+            font-size: 1.5em;
+            margin-top: 20px;
+            text-shadow: 0 0 10px #00ffaa;
+        }
+        button {
+            margin-top: 30px;
+            padding: 15px 30px;
+            font-size: 1em;
+            background-color: #00ffaa;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>AURA SENSOR (Entropy Detector)</h1>
+    <p>(อิงตามแนวคิด STT / Project Chronosense)</p>
+
+    <div id="gauge-container">
+        <div id="needle"></div>
+    </div>
+    <div id="status">สถานะ: รอการเชื่อมต่อ...</div>
+    <button id="startButton">เริ่มการตรวจวัด</button>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const needle = document.getElementById('needle');
+        const statusDiv = document.getElementById('status');
+        let audioContext;
+        let analyser;
+        let isMeasuring = false;
+
+        startButton.onclick = () => {
+            if (isMeasuring) {
+                // --- หยุดการวัด ---
+                if (audioContext) {
+                    audioContext.close();
+                    audioContext = null;
+                }
+                isMeasuring = false;
+                startButton.innerText = "เริ่มการตรวจวัด";
+                statusDiv.innerText = "สถานะ: หยุดทำงาน";
+                needle.style.transform = `rotate(0deg)`;
+            } else {
+                // --- เริ่มการวัด ---
+                startButton.innerText = "กำลังเชื่อมต่อ...";
+
+                // 1. [Http App] ขออนุญาตเข้าถึง "เซ็นเซอร์" (ไมโครโฟน)
+                navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+                    .then(stream => {
+                        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        analyser = audioContext.createAnalyser();
+                        const source = audioContext.createMediaStreamSource(stream);
+                        source.connect(analyser); // เชื่อมต่อไมโครโฟนเข้ากับตัววิเคราะห์
+
+                        analyser.fftSize = 256;
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Uint8Array(bufferLength);
+
+                        statusDiv.innerText = "สถานะ: กำลังตรวจวัดเอนโทรปี (เสียงรบกวน)...";
+                        startButton.innerText = "หยุดการตรวจวัด";
+                        isMeasuring = true;
+
+                        // 2. [Logic] วนลูปเพื่อ "วัดสัญญาณ"
+                        function measureEntropy() {
+                            if (!isMeasuring) return; // หยุดถ้าผู้ใช้กดปุ่ม
+
+                            analyser.getByteFrequencyData(dataArray);
+
+                            // 3. [Logic] คำนวณ "เอนโทรปี" (ความโกลาหล)
+                            // เราใช้ "ความดัง" (Average Volume) ของเสียงรบกวนรอบข้าง
+                            // เป็นตัวแทนของ "เอนโทรปี" (ความโกลาหลของคลื่นอากาศ)
+                            let sum = 0;
+                            for (let i = 0; i < bufferLength; i++) {
+                                sum += dataArray[i];
+                            }
+                            let averageVolume = sum / bufferLength;
+
+                            // 4. [Display] แสดงผล
+                            // แปลงค่าความดัง (0-128) เป็นองศา (-90 ถึง 90)
+                            // ถ้าเงียบ (เอนโทรปีต่ำ) เข็มจะอยู่ซ้าย
+                            // ถ้าดัง (เอนโทรปีสูง) เข็มจะอยู่ขวา
+                            let rotation = (averageVolume / 128) * 90 - 90;
+                            if (rotation > 90) rotation = 90;
+                            if (rotation < -90) rotation = -90;
+
+                            needle.style.transform = `rotate(${rotation}deg)`;
+                            statusDiv.innerText = `สถานะ: ตรวจพบเอนโทรปี: ${averageVolume.toFixed(2)}`;
+
+                            requestAnimationFrame(measureEntropy); // วนลูป
+                        }
+                        measureEntropy();
+                    })
+                    .catch(err => {
+                        statusDiv.innerText = "เกิดข้อผิดพลาด: ไม่สามารถเข้าถึงไมโครโฟนได้";
+                        console.error(err);
+                        startButton.innerText = "เริ่มการตรวจวัด";
+                    });
+            }
+        };
+    </script>
+
+</body>
+</html>
